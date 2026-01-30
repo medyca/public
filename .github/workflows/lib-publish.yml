@@ -31,16 +31,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check for lockfile
+        id: lockfile
+        run: test -f package-lock.json && echo "exists=true" >> "$GITHUB_OUTPUT" || echo "exists=false" >> "$GITHUB_OUTPUT"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
           registry-url: 'https://npm.pkg.github.com'
           scope: ${{ inputs.scope }}
-          cache: 'npm'
+          cache: ${{ steps.lockfile.outputs.exists == 'true' && 'npm' || '' }}
 
       - name: Install dependencies
-        run: npm ci
+        run: ${{ steps.lockfile.outputs.exists == 'true' && 'npm ci' || 'npm install' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
 
