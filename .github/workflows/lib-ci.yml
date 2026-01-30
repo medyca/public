@@ -9,7 +9,7 @@ on:
         type: string
         default: '24'
       scope:
-        description: 'NPM scope for GitHub Packages (e.g. @medyca)'
+        description: 'NPM scope for GitHub Packages'
         required: true
         type: string
     secrets:
