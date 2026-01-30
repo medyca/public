@@ -39,9 +39,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
-          registry-url: 'https://npm.pkg.github.com'
-          scope: ${{ inputs.scope }}
           cache: ${{ steps.lockfile.outputs.exists == 'true' && 'npm' || '' }}
+
+      - name: Configure npm registry
+        run: |
+          echo "${{ inputs.scope }}:registry=https://npm.pkg.github.com" > .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
 
       - name: Install dependencies
         run: ${{ steps.lockfile.outputs.exists == 'true' && 'npm ci' || 'npm install' }}
