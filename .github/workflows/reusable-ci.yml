@@ -1,0 +1,85 @@
+# =============================================================================
+# Medyca Reusable CI Workflow
+# =============================================================================
+# Runs lint, type-check, and unit tests for NestJS services (MBE/BFF).
+#
+# Usage in individual repos:
+#   jobs:
+#     ci:
+#       uses: medyca/public/.github/workflows/reusable-ci.yml@main
+#       with:
+#         service-name: mbe-authentication
+#       secrets:
+#         PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
+# =============================================================================
+
+name: CI
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: "Service name (e.g., mbe-authentication, bff-patient)"
+        required: true
+        type: string
+      node-version:
+        description: "Node.js version"
+        required: false
+        type: string
+        default: "24"
+    secrets:
+      PKG_READ_TOKEN:
+        description: "GitHub Packages read token for @medyca/* packages"
+        required: true
+
+jobs:
+  ci:
+    name: CI - ${{ inputs.service-name }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          registry-url: https://npm.pkg.github.com
+          scope: "@medyca"
+
+      - name: Configure npm for GitHub Packages
+        run: |
+          echo "@medyca:registry=https://npm.pkg.github.com" > ~/.npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.PKG_READ_TOKEN }}" >> ~/.npmrc
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ inputs.node-version }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ inputs.node-version }}-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test -- --coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ inputs.service-name }}
+          path: coverage/
+          retention-days: 7

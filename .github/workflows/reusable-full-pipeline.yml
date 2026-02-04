@@ -1,0 +1,121 @@
+# =============================================================================
+# Medyca Reusable Full Pipeline Workflow
+# =============================================================================
+# Complete CI/CD pipeline: CI -> Build -> Deploy (staging) -> Deploy (production).
+# Individual repos call this single workflow for the entire pipeline.
+#
+# Usage in individual repos:
+#   # .github/workflows/pipeline.yml
+#   name: Pipeline
+#   on:
+#     push:
+#       branches: [main]
+#     pull_request:
+#       branches: [main]
+#   jobs:
+#     pipeline:
+#       uses: medyca/public/.github/workflows/reusable-full-pipeline.yml@main
+#       with:
+#         service-name: mbe-authentication
+#         port: "3034"
+#       secrets: inherit
+# =============================================================================
+
+name: Full Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: "Service name"
+        required: true
+        type: string
+      port:
+        description: "Service port"
+        required: true
+        type: string
+      node-version:
+        description: "Node.js version"
+        required: false
+        type: string
+        default: "24"
+      deploy-staging:
+        description: "Whether to deploy to staging on merge to main"
+        required: false
+        type: boolean
+        default: true
+      deploy-production:
+        description: "Whether to deploy to production (requires manual approval)"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      PKG_READ_TOKEN:
+        description: "GitHub Packages read token"
+        required: true
+      GCP_WORKLOAD_IDENTITY_PROVIDER:
+        description: "GCP Workload Identity provider"
+        required: false
+      GCP_SERVICE_ACCOUNT_STAGING:
+        description: "GCP service account email for staging"
+        required: false
+      GCP_SERVICE_ACCOUNT_PRODUCTION:
+        description: "GCP service account email for production"
+        required: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Stage 1: CI (runs on all PRs and pushes)
+  # ---------------------------------------------------------------------------
+  ci:
+    uses: medyca/public/.github/workflows/reusable-ci.yml@main
+    with:
+      service-name: ${{ inputs.service-name }}
+      node-version: ${{ inputs.node-version }}
+    secrets:
+      PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Stage 2: Build & Push (only on merge to main)
+  # ---------------------------------------------------------------------------
+  build:
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: medyca/public/.github/workflows/reusable-docker-build-push.yml@main
+    with:
+      service-name: ${{ inputs.service-name }}
+      port: ${{ inputs.port }}
+    secrets:
+      PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Stage 3: Deploy to Staging (automatic after build)
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    needs: build
+    if: inputs.deploy-staging
+    uses: medyca/public/.github/workflows/reusable-deploy-gke.yml@main
+    with:
+      service-name: ${{ inputs.service-name }}
+      environment: staging
+      image-tag: ${{ needs.build.outputs.image-tag }}
+    secrets:
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_STAGING }}
+      PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Stage 4: Deploy to Production (manual approval required)
+  # ---------------------------------------------------------------------------
+  deploy-production:
+    needs: [build, deploy-staging]
+    if: inputs.deploy-production
+    uses: medyca/public/.github/workflows/reusable-deploy-gke.yml@main
+    with:
+      service-name: ${{ inputs.service-name }}
+      environment: production
+      image-tag: ${{ needs.build.outputs.image-tag }}
+    secrets:
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_PRODUCTION }}
+      PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}

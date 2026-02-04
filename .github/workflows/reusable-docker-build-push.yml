@@ -1,0 +1,112 @@
+# =============================================================================
+# Medyca Reusable Docker Build & Push Workflow
+# =============================================================================
+# Builds production Docker image and pushes to GitHub Container Registry.
+#
+# Usage in individual repos:
+#   jobs:
+#     build:
+#       uses: medyca/public/.github/workflows/reusable-docker-build-push.yml@main
+#       with:
+#         service-name: mbe-authentication
+#         port: 3034
+#       secrets:
+#         PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
+# =============================================================================
+
+name: Docker Build & Push
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: "Service name for image tag (e.g., mbe-authentication)"
+        required: true
+        type: string
+      port:
+        description: "Service port for health check validation"
+        required: true
+        type: string
+      dockerfile:
+        description: "Path to Dockerfile"
+        required: false
+        type: string
+        default: "Dockerfile"
+      target:
+        description: "Docker build target stage"
+        required: false
+        type: string
+        default: "production"
+    secrets:
+      PKG_READ_TOKEN:
+        description: "GitHub Packages read token for @medyca/* packages"
+        required: true
+    outputs:
+      image-tag:
+        description: "Full image tag that was pushed"
+        value: ${{ jobs.build-push.outputs.image-tag }}
+      image-digest:
+        description: "Image digest"
+        value: ${{ jobs.build-push.outputs.image-digest }}
+
+jobs:
+  build-push:
+    name: Build & Push - ${{ inputs.service-name }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: medyca/${{ inputs.service-name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ inputs.dockerfile }}
+          target: ${{ inputs.target }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GITHUB_TOKEN=${{ secrets.PKG_READ_TOKEN }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify image
+        run: |
+          echo "Image pushed successfully:"
+          echo "  Tags: ${{ steps.meta.outputs.tags }}"
+          echo "  Digest: ${{ steps.build.outputs.digest }}"

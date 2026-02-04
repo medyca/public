@@ -1,0 +1,196 @@
+# =============================================================================
+# Medyca Reusable GKE Deploy Workflow
+# =============================================================================
+# Deploys a single service to GKE Autopilot using Helm.
+# Idempotently bootstraps namespace, GHCR credentials, infrastructure
+# (MongoDB/Redis for non-production), and secrets before deploying.
+#
+# Cluster naming convention: medyca-{environment}-autopilot
+#
+# Usage in individual repos:
+#   jobs:
+#     deploy:
+#       uses: medyca/public/.github/workflows/reusable-deploy-gke.yml@main
+#       with:
+#         service-name: mbe-authentication
+#         environment: staging
+#         image-tag: ghcr.io/medyca/mbe-authentication:abc1234
+#       secrets:
+#         GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+#         GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_STAGING }}
+#         PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
+# =============================================================================
+
+name: Deploy to GKE
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: "Service name matching values file in medyca-infrastructure/k8s/values/"
+        required: true
+        type: string
+      environment:
+        description: "Target environment (staging, production)"
+        required: true
+        type: string
+      image-tag:
+        description: "Full Docker image tag to deploy"
+        required: true
+        type: string
+      gke-cluster:
+        description: "GKE cluster name (default: medyca-{environment}-autopilot)"
+        required: false
+        type: string
+        default: ""
+      gke-region:
+        description: "GKE cluster region"
+        required: false
+        type: string
+        default: "southamerica-east1"
+      wait-timeout:
+        description: "Rollout wait timeout in seconds"
+        required: false
+        type: string
+        default: "300"
+    secrets:
+      GCP_WORKLOAD_IDENTITY_PROVIDER:
+        description: "GCP Workload Identity provider"
+        required: true
+      GCP_SERVICE_ACCOUNT:
+        description: "GCP service account email"
+        required: true
+      PKG_READ_TOKEN:
+        description: "GitHub Packages read token (for GHCR imagePullSecret and private repo access)"
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.service-name }} to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write  # Required for Workload Identity Federation
+
+    environment:
+      name: ${{ inputs.environment }}
+
+    env:
+      NAMESPACE: medyca-${{ inputs.environment }}
+
+    steps:
+      - name: Checkout medyca-infrastructure (Helm chart, K8s manifests)
+        uses: actions/checkout@v4
+        with:
+          repository: medyca/medyca-infrastructure
+          token: ${{ secrets.PKG_READ_TOKEN }}
+          path: medyca-infra
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve GKE cluster name
+        id: cluster
+        run: |
+          if [ -n "${{ inputs.gke-cluster }}" ]; then
+            echo "name=${{ inputs.gke-cluster }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=medyca-${{ inputs.environment }}-autopilot" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ steps.cluster.outputs.name }}
+          location: ${{ inputs.gke-region }}
+          project_id: medyca-${{ inputs.environment }}
+
+      # --- Bootstrap: namespace, secrets, GHCR credentials, infra ---
+
+      - name: Ensure namespace exists
+        run: |
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Create/update GHCR imagePullSecret
+        run: |
+          kubectl create secret docker-registry ghcr-credentials \
+            --docker-server=ghcr.io \
+            --docker-username=medyca \
+            --docker-password=${{ secrets.PKG_READ_TOKEN }} \
+            -n ${{ env.NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Ensure application secrets exist
+        run: |
+          # Only create if it doesn't exist yet (preserves manually-set values)
+          if ! kubectl get secret medyca-secrets -n ${{ env.NAMESPACE }} &>/dev/null; then
+            kubectl apply -f medyca-infra/k8s/infra/secrets.yaml -n ${{ env.NAMESPACE }}
+            echo "WARNING: Application secrets created with placeholder values."
+            echo "Set real values with: kubectl -n ${{ env.NAMESPACE }} edit secret medyca-secrets"
+          else
+            echo "Application secrets already exist - skipping"
+          fi
+
+      - name: Deploy infrastructure (MongoDB + Redis)
+        if: inputs.environment != 'production'
+        run: |
+          BASE="medyca-infra/k8s/infra"
+
+          # MongoDB (idempotent)
+          if ! kubectl get statefulset mongodb -n ${{ env.NAMESPACE }} &>/dev/null; then
+            echo "--- Deploying MongoDB ---"
+            kubectl apply -f "${BASE}/mongodb/statefulset.yaml" -n ${{ env.NAMESPACE }}
+            kubectl apply -f "${BASE}/mongodb/service.yaml" -n ${{ env.NAMESPACE }}
+            echo "Waiting for MongoDB..."
+            kubectl rollout status statefulset/mongodb -n ${{ env.NAMESPACE }} --timeout=180s
+          else
+            echo "MongoDB already running - skipping"
+          fi
+
+          # Redis (idempotent)
+          if ! kubectl get deployment redis -n ${{ env.NAMESPACE }} &>/dev/null; then
+            echo "--- Deploying Redis ---"
+            kubectl apply -f "${BASE}/redis/deployment.yaml" -n ${{ env.NAMESPACE }}
+            kubectl apply -f "${BASE}/redis/service.yaml" -n ${{ env.NAMESPACE }}
+            echo "Waiting for Redis..."
+            kubectl rollout status deployment/redis -n ${{ env.NAMESPACE }} --timeout=60s
+          else
+            echo "Redis already running - skipping"
+          fi
+
+      # --- Deploy the service via Helm ---
+
+      - name: Deploy service
+        run: |
+          IMAGE_TAG=$(echo "${{ inputs.image-tag }}" | sed 's/^.*://')
+          CHART="medyca-infra/k8s/chart"
+          VALUES="medyca-infra/k8s/values"
+
+          helm upgrade --install ${{ inputs.service-name }} "${CHART}" \
+            -f "${VALUES}/${{ inputs.service-name }}.yaml" \
+            -f "${VALUES}/env-${{ inputs.environment }}.yaml" \
+            --set image.tag="${IMAGE_TAG}" \
+            -n ${{ env.NAMESPACE }} \
+            --wait --timeout ${{ inputs.wait-timeout }}s
+
+      - name: Verify health
+        run: |
+          kubectl wait --for=condition=ready pod \
+            -l app=${{ inputs.service-name }} \
+            -n ${{ env.NAMESPACE }} \
+            --timeout=120s
+          echo "Deployment of ${{ inputs.service-name }} to ${{ inputs.environment }} successful"
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Deployment failed - rolling back ${{ inputs.service-name }}"
+          helm rollback ${{ inputs.service-name }} 0 \
+            -n ${{ env.NAMESPACE }} 2>/dev/null || echo "No previous revision to rollback to"
