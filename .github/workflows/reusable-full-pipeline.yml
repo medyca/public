@@ -94,6 +94,7 @@ jobs:
       org: ${{ inputs.org }}
       infra-repo: ${{ inputs.infra-repo }}
       environment: staging
+      gke-location: "us-central1-a"
       image-tag: ${{ needs.build.outputs.image-tag }}
     secrets:
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
