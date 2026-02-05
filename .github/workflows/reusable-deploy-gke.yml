@@ -64,10 +64,6 @@ jobs:
     name: Deploy ${{ inputs.service-name }} to ${{ inputs.environment }}
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: read
-      id-token: write
-
     environment:
       name: ${{ inputs.environment }}
 
