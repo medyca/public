@@ -49,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
 
     outputs:
-      image-tag: ${{ steps.meta.outputs.tags }}
+      image-tag: ${{ steps.sha-tag.outputs.tag }}
       image-digest: ${{ steps.build.outputs.digest }}
 
     env:
@@ -95,8 +95,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Extract SHA tag for deploy
+        id: sha-tag
+        run: |
+          # Output only the SHA-based tag (first tag) for deterministic deploys
+          SHA_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+          echo "tag=${SHA_TAG}" >> $GITHUB_OUTPUT
+          echo "Deploy tag: ${SHA_TAG}"
+
       - name: Verify image
         run: |
           echo "Image pushed successfully:"
           echo "  Tags: ${{ steps.meta.outputs.tags }}"
+          echo "  Deploy tag: ${{ steps.sha-tag.outputs.tag }}"
           echo "  Digest: ${{ steps.build.outputs.digest }}"

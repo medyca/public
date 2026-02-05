@@ -160,7 +160,7 @@ jobs:
 
       - name: Deploy service
         run: |
-          IMAGE_TAG=$(echo "${{ inputs.image-tag }}" | sed 's/^.*://')
+          IMAGE_TAG=$(echo "${{ inputs.image-tag }}" | head -1 | sed 's/^.*://')
           CHART="infra/k8s/chart"
           VALUES="infra/k8s/values"
 
