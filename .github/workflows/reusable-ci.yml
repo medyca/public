@@ -1,16 +1,7 @@
 # =============================================================================
-# Medyca Reusable CI Workflow
+# Reusable CI Workflow
 # =============================================================================
 # Runs lint, type-check, and unit tests for NestJS services (MBE/BFF).
-#
-# Usage in individual repos:
-#   jobs:
-#     ci:
-#       uses: medyca/public/.github/workflows/reusable-ci.yml@main
-#       with:
-#         service-name: mbe-authentication
-#       secrets:
-#         PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
 # =============================================================================
 
 name: CI
@@ -22,6 +13,10 @@ on:
         description: "Service name (e.g., mbe-authentication, bff-patient)"
         required: true
         type: string
+      org:
+        description: "Organization name for npm scope and registry"
+        required: true
+        type: string
       node-version:
         description: "Node.js version"
         required: false
@@ -29,7 +24,7 @@ on:
         default: "24"
     secrets:
       PKG_READ_TOKEN:
-        description: "GitHub Packages read token for @medyca/* packages"
+        description: "GitHub Packages read token for scoped packages"
         required: true
 
 jobs:
@@ -46,11 +41,11 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           registry-url: https://npm.pkg.github.com
-          scope: "@medyca"
+          scope: "@${{ inputs.org }}"
 
       - name: Configure npm for GitHub Packages
         run: |
-          echo "@medyca:registry=https://npm.pkg.github.com" > ~/.npmrc
+          echo "@${{ inputs.org }}:registry=https://npm.pkg.github.com" > ~/.npmrc
           echo "//npm.pkg.github.com/:_authToken=${{ secrets.PKG_READ_TOKEN }}" >> ~/.npmrc
 
       - name: Cache node_modules

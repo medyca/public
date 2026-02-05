@@ -1,24 +1,11 @@
 # =============================================================================
-# Medyca Reusable GKE Deploy Workflow
+# Reusable GKE Deploy Workflow
 # =============================================================================
 # Deploys a single service to GKE Autopilot using Helm.
 # Idempotently bootstraps namespace, GHCR credentials, infrastructure
 # (MongoDB/Redis for non-production), and secrets before deploying.
 #
-# Cluster naming convention: medyca-{environment}-autopilot
-#
-# Usage in individual repos:
-#   jobs:
-#     deploy:
-#       uses: medyca/public/.github/workflows/reusable-deploy-gke.yml@main
-#       with:
-#         service-name: mbe-authentication
-#         environment: staging
-#         image-tag: ghcr.io/medyca/mbe-authentication:abc1234
-#       secrets:
-#         GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-#         GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_STAGING }}
-#         PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
+# Cluster naming convention: {org}-{environment}-autopilot
 # =============================================================================
 
 name: Deploy to GKE
@@ -27,7 +14,15 @@ on:
   workflow_call:
     inputs:
       service-name:
-        description: "Service name matching values file in medyca-infrastructure/k8s/values/"
+        description: "Service name matching values file in infrastructure repo k8s/values/"
+        required: true
+        type: string
+      org:
+        description: "Organization name (used for namespace, cluster, project, secrets)"
+        required: true
+        type: string
+      infra-repo:
+        description: "Infrastructure repository (org/repo format)"
         required: true
         type: string
       environment:
@@ -39,7 +34,7 @@ on:
         required: true
         type: string
       gke-cluster:
-        description: "GKE cluster name (default: medyca-{environment}-autopilot)"
+        description: "GKE cluster name override (default: {org}-{environment}-autopilot)"
         required: false
         type: string
         default: ""
@@ -71,21 +66,21 @@ jobs:
 
     permissions:
       contents: read
-      id-token: write  # Required for Workload Identity Federation
+      id-token: write
 
     environment:
       name: ${{ inputs.environment }}
 
     env:
-      NAMESPACE: medyca-${{ inputs.environment }}
+      NAMESPACE: ${{ inputs.org }}-${{ inputs.environment }}
 
     steps:
-      - name: Checkout medyca-infrastructure (Helm chart, K8s manifests)
+      - name: Checkout infrastructure (Helm chart, K8s manifests)
         uses: actions/checkout@v4
         with:
-          repository: medyca/medyca-infrastructure
+          repository: ${{ inputs.infra-repo }}
           token: ${{ secrets.PKG_READ_TOKEN }}
-          path: medyca-infra
+          path: infra
 
       - name: Authenticate to GCP
         uses: google-github-actions/auth@v2
@@ -102,7 +97,7 @@ jobs:
           if [ -n "${{ inputs.gke-cluster }}" ]; then
             echo "name=${{ inputs.gke-cluster }}" >> $GITHUB_OUTPUT
           else
-            echo "name=medyca-${{ inputs.environment }}-autopilot" >> $GITHUB_OUTPUT
+            echo "name=${{ inputs.org }}-${{ inputs.environment }}-autopilot" >> $GITHUB_OUTPUT
           fi
 
       - name: Get GKE credentials
@@ -110,7 +105,7 @@ jobs:
         with:
           cluster_name: ${{ steps.cluster.outputs.name }}
           location: ${{ inputs.gke-region }}
-          project_id: medyca-${{ inputs.environment }}
+          project_id: ${{ inputs.org }}-${{ inputs.environment }}
 
       # --- Bootstrap: namespace, secrets, GHCR credentials, infra ---
 
@@ -122,18 +117,18 @@ jobs:
         run: |
           kubectl create secret docker-registry ghcr-credentials \
             --docker-server=ghcr.io \
-            --docker-username=medyca \
+            --docker-username=${{ inputs.org }} \
             --docker-password=${{ secrets.PKG_READ_TOKEN }} \
             -n ${{ env.NAMESPACE }} \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Ensure application secrets exist
         run: |
-          # Only create if it doesn't exist yet (preserves manually-set values)
-          if ! kubectl get secret medyca-secrets -n ${{ env.NAMESPACE }} &>/dev/null; then
-            kubectl apply -f medyca-infra/k8s/infra/secrets.yaml -n ${{ env.NAMESPACE }}
+          SECRET_NAME="${{ inputs.org }}-secrets"
+          if ! kubectl get secret "${SECRET_NAME}" -n ${{ env.NAMESPACE }} &>/dev/null; then
+            kubectl apply -f infra/k8s/infra/secrets.yaml -n ${{ env.NAMESPACE }}
             echo "WARNING: Application secrets created with placeholder values."
-            echo "Set real values with: kubectl -n ${{ env.NAMESPACE }} edit secret medyca-secrets"
+            echo "Set real values with: kubectl -n ${{ env.NAMESPACE }} edit secret ${SECRET_NAME}"
           else
             echo "Application secrets already exist - skipping"
           fi
@@ -141,7 +136,7 @@ jobs:
       - name: Deploy infrastructure (MongoDB + Redis)
         if: inputs.environment != 'production'
         run: |
-          BASE="medyca-infra/k8s/infra"
+          BASE="infra/k8s/infra"
 
           # MongoDB (idempotent)
           if ! kubectl get statefulset mongodb -n ${{ env.NAMESPACE }} &>/dev/null; then
@@ -170,8 +165,8 @@ jobs:
       - name: Deploy service
         run: |
           IMAGE_TAG=$(echo "${{ inputs.image-tag }}" | sed 's/^.*://')
-          CHART="medyca-infra/k8s/chart"
-          VALUES="medyca-infra/k8s/values"
+          CHART="infra/k8s/chart"
+          VALUES="infra/k8s/values"
 
           helm upgrade --install ${{ inputs.service-name }} "${CHART}" \
             -f "${VALUES}/${{ inputs.service-name }}.yaml" \

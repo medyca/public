@@ -1,17 +1,7 @@
 # =============================================================================
-# Medyca Reusable Docker Build & Push Workflow
+# Reusable Docker Build & Push Workflow
 # =============================================================================
 # Builds production Docker image and pushes to GitHub Container Registry.
-#
-# Usage in individual repos:
-#   jobs:
-#     build:
-#       uses: medyca/public/.github/workflows/reusable-docker-build-push.yml@main
-#       with:
-#         service-name: mbe-authentication
-#         port: 3034
-#       secrets:
-#         PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
 # =============================================================================
 
 name: Docker Build & Push
@@ -21,6 +11,10 @@ on:
     inputs:
       service-name:
         description: "Service name for image tag (e.g., mbe-authentication)"
+        required: true
+        type: string
+      org:
+        description: "Organization name for container registry"
         required: true
         type: string
       port:
@@ -39,7 +33,7 @@ on:
         default: "production"
     secrets:
       PKG_READ_TOKEN:
-        description: "GitHub Packages read token for @medyca/* packages"
+        description: "GitHub Packages read token for scoped packages"
         required: true
     outputs:
       image-tag:
@@ -64,7 +58,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: medyca/${{ inputs.service-name }}
+      IMAGE_NAME: ${{ inputs.org }}/${{ inputs.service-name }}
 
     steps:
       - name: Checkout

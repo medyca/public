@@ -1,24 +1,8 @@
 # =============================================================================
-# Medyca Reusable Full Pipeline Workflow
+# Reusable Full Pipeline Workflow
 # =============================================================================
 # Complete CI/CD pipeline: CI -> Build -> Deploy (staging) -> Deploy (production).
 # Individual repos call this single workflow for the entire pipeline.
-#
-# Usage in individual repos:
-#   # .github/workflows/pipeline.yml
-#   name: Pipeline
-#   on:
-#     push:
-#       branches: [main]
-#     pull_request:
-#       branches: [main]
-#   jobs:
-#     pipeline:
-#       uses: medyca/public/.github/workflows/reusable-full-pipeline.yml@main
-#       with:
-#         service-name: mbe-authentication
-#         port: "3034"
-#       secrets: inherit
 # =============================================================================
 
 name: Full Pipeline
@@ -28,6 +12,14 @@ on:
     inputs:
       service-name:
         description: "Service name"
+        required: true
+        type: string
+      org:
+        description: "Organization name"
+        required: true
+        type: string
+      infra-repo:
+        description: "Infrastructure repository (org/repo format)"
         required: true
         type: string
       port:
@@ -71,6 +63,7 @@ jobs:
     uses: medyca/public/.github/workflows/reusable-ci.yml@main
     with:
       service-name: ${{ inputs.service-name }}
+      org: ${{ inputs.org }}
       node-version: ${{ inputs.node-version }}
     secrets:
       PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
@@ -84,6 +77,7 @@ jobs:
     uses: medyca/public/.github/workflows/reusable-docker-build-push.yml@main
     with:
       service-name: ${{ inputs.service-name }}
+      org: ${{ inputs.org }}
       port: ${{ inputs.port }}
     secrets:
       PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
@@ -97,6 +91,8 @@ jobs:
     uses: medyca/public/.github/workflows/reusable-deploy-gke.yml@main
     with:
       service-name: ${{ inputs.service-name }}
+      org: ${{ inputs.org }}
+      infra-repo: ${{ inputs.infra-repo }}
       environment: staging
       image-tag: ${{ needs.build.outputs.image-tag }}
     secrets:
@@ -113,6 +109,8 @@ jobs:
     uses: medyca/public/.github/workflows/reusable-deploy-gke.yml@main
     with:
       service-name: ${{ inputs.service-name }}
+      org: ${{ inputs.org }}
+      infra-repo: ${{ inputs.infra-repo }}
       environment: production
       image-tag: ${{ needs.build.outputs.image-tag }}
     secrets:

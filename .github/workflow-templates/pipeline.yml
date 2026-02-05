@@ -1,11 +1,11 @@
 # =============================================================================
-# Medyca Pipeline Template
+# Pipeline Template
 # =============================================================================
 # Copy this file to your repo's .github/workflows/pipeline.yml and update
-# the service-name and port values.
+# the values below for your service.
 #
 # Required repository secrets:
-#   - PKG_READ_TOKEN: GitHub Packages read token for @medyca/* packages
+#   - PKG_READ_TOKEN: GitHub Packages read token for scoped packages
 #   - GCP_WORKLOAD_IDENTITY_PROVIDER: (for deploy stages)
 #   - GCP_SERVICE_ACCOUNT: (for deploy stages)
 # =============================================================================
@@ -23,8 +23,10 @@ jobs:
     uses: medyca/public/.github/workflows/reusable-full-pipeline.yml@main
     with:
       # TODO: Update these values for your service
-      service-name: mbe-authentication  # Change to your service name
-      port: "3034"                      # Change to your service port
+      service-name: my-service         # Change to your service name
+      org: my-org                      # Change to your GitHub organization
+      infra-repo: my-org/my-infra      # Change to your infrastructure repo
+      port: "3000"                     # Change to your service port
       deploy-staging: true
-      deploy-production: false          # Set to true when ready for production deploys
+      deploy-production: false         # Set to true when ready for production deploys
     secrets: inherit
