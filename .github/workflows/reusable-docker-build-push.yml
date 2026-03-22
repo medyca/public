@@ -1,7 +1,8 @@
 # =============================================================================
 # Reusable Docker Build & Push Workflow
 # =============================================================================
-# Builds production Docker image and pushes to GitHub Container Registry.
+# Builds production Docker image and pushes to Google Artifact Registry.
+# Uses Workload Identity Federation for GCP authentication.
 # =============================================================================
 
 name: Docker Build & Push
@@ -14,7 +15,7 @@ on:
         required: true
         type: string
       org:
-        description: "Organization name for container registry"
+        description: "Organization name"
         required: true
         type: string
       port:
@@ -35,6 +36,12 @@ on:
       PKG_READ_TOKEN:
         description: "GitHub Packages read token for scoped packages"
         required: true
+      GCP_WORKLOAD_IDENTITY_PROVIDER:
+        description: "GCP Workload Identity provider"
+        required: true
+      GCP_SERVICE_ACCOUNT:
+        description: "GCP service account email for pushing images"
+        required: true
     outputs:
       image-tag:
         description: "Full image tag that was pushed"
@@ -48,13 +55,17 @@ jobs:
     name: Build & Push - ${{ inputs.service-name }}
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      id-token: write
+
     outputs:
       image-tag: ${{ steps.sha-tag.outputs.tag }}
       image-digest: ${{ steps.build.outputs.digest }}
 
     env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ inputs.org }}/${{ inputs.service-name }}
+      REGISTRY: us-central1-docker.pkg.dev
+      IMAGE_NAME: medyca-staging/medyca-docker/${{ inputs.service-name }}
 
     steps:
       - name: Checkout
@@ -63,12 +74,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Log in to Artifact Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
 
       - name: Extract metadata
         id: meta

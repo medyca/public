@@ -82,6 +82,8 @@ jobs:
       port: ${{ inputs.port }}
     secrets:
       PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_STAGING }}
 
   # ---------------------------------------------------------------------------
   # Stage 3: Deploy to Staging (automatic after build)

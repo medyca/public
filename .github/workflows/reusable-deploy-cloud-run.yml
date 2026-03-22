@@ -1,7 +1,7 @@
 # =============================================================================
 # Reusable Cloud Run Deploy Workflow
 # =============================================================================
-# Deploys a service to Cloud Run from a GHCR image.
+# Deploys a service to Cloud Run from an Artifact Registry image.
 # Uses Workload Identity Federation (no service account keys).
 # =============================================================================
 
@@ -23,7 +23,7 @@ on:
         required: true
         type: string
       image-tag:
-        description: "Full Docker image tag to deploy (ghcr.io/org/service:tag)"
+        description: "Full Docker image tag to deploy (AR path)"
         required: true
         type: string
       region:
@@ -84,23 +84,11 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
-      - name: Rewrite image to Artifact Registry remote
-        id: image
-        run: |
-          # Cloud Run only accepts gcr.io, docker.pkg.dev, or docker.io images.
-          # Rewrite ghcr.io image path to Artifact Registry remote repository.
-          ORIGINAL="${{ inputs.image-tag }}"
-          REGION="${{ steps.env.outputs.region }}"
-          PROJECT="${{ steps.env.outputs.project }}"
-          AR_IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/ghcr-remote/${ORIGINAL#ghcr.io/}"
-          echo "image=${AR_IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "Rewritten: ${ORIGINAL} -> ${AR_IMAGE}"
-
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ inputs.service-name }}
-          image: ${{ steps.image.outputs.image }}
+          image: ${{ inputs.image-tag }}
           region: ${{ steps.env.outputs.region }}
           project_id: ${{ steps.env.outputs.project }}
 
