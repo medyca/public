@@ -19,9 +19,10 @@ on:
         required: true
         type: string
       infra-repo:
-        description: "Infrastructure repository (org/repo format)"
-        required: true
+        description: "Infrastructure repository (deprecated, kept for backward compatibility)"
+        required: false
         type: string
+        default: ""
       port:
         description: "Service port"
         required: true
@@ -88,18 +89,15 @@ jobs:
   deploy-staging:
     needs: build
     if: inputs.deploy-staging
-    uses: medyca/public/.github/workflows/reusable-deploy-gke.yml@main
+    uses: medyca/public/.github/workflows/reusable-deploy-cloud-run.yml@main
     with:
       service-name: ${{ inputs.service-name }}
       org: ${{ inputs.org }}
-      infra-repo: ${{ inputs.infra-repo }}
       environment: staging
-      gke-location: "us-central1-a"
       image-tag: ${{ needs.build.outputs.image-tag }}
     secrets:
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
       GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_STAGING }}
-      PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
 
   # ---------------------------------------------------------------------------
   # Stage 4: Deploy to Production (manual approval required)
@@ -107,14 +105,12 @@ jobs:
   deploy-production:
     needs: [build, deploy-staging]
     if: inputs.deploy-production
-    uses: medyca/public/.github/workflows/reusable-deploy-gke.yml@main
+    uses: medyca/public/.github/workflows/reusable-deploy-cloud-run.yml@main
     with:
       service-name: ${{ inputs.service-name }}
       org: ${{ inputs.org }}
-      infra-repo: ${{ inputs.infra-repo }}
       environment: production
       image-tag: ${{ needs.build.outputs.image-tag }}
     secrets:
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
       GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT_PRODUCTION }}
-      PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}

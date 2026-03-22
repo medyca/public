@@ -1,0 +1,101 @@
+# =============================================================================
+# Reusable Cloud Run Deploy Workflow
+# =============================================================================
+# Deploys a service to Cloud Run from a GHCR image.
+# Uses Workload Identity Federation (no service account keys).
+# =============================================================================
+
+name: Deploy to Cloud Run
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: "Cloud Run service name (must match Terraform service name)"
+        required: true
+        type: string
+      org:
+        description: "Organization name"
+        required: true
+        type: string
+      environment:
+        description: "Target environment (staging, production)"
+        required: true
+        type: string
+      image-tag:
+        description: "Full Docker image tag to deploy (ghcr.io/org/service:tag)"
+        required: true
+        type: string
+      region:
+        description: "GCP region"
+        required: false
+        type: string
+        default: ""
+      project-id:
+        description: "GCP project ID override"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      GCP_WORKLOAD_IDENTITY_PROVIDER:
+        description: "GCP Workload Identity provider"
+        required: true
+      GCP_SERVICE_ACCOUNT:
+        description: "GCP service account email for this environment"
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.service-name }} to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+
+    environment:
+      name: ${{ inputs.environment }}
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Resolve environment defaults
+        id: env
+        run: |
+          # Resolve project ID
+          if [ -n "${{ inputs.project-id }}" ]; then
+            echo "project=${{ inputs.project-id }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ inputs.environment }}" = "production" ]; then
+            echo "project=${{ inputs.org }}-prod" >> "$GITHUB_OUTPUT"
+          else
+            echo "project=${{ inputs.org }}-${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Resolve region
+          if [ -n "${{ inputs.region }}" ]; then
+            echo "region=${{ inputs.region }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ inputs.environment }}" = "production" ]; then
+            echo "region=southamerica-east1" >> "$GITHUB_OUTPUT"
+          else
+            echo "region=us-central1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ inputs.service-name }}
+          image: ${{ inputs.image-tag }}
+          region: ${{ steps.env.outputs.region }}
+          project_id: ${{ steps.env.outputs.project }}
+
+      - name: Verify deployment
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${{ inputs.service-name }} \
+            --project=${{ steps.env.outputs.project }} \
+            --region=${{ steps.env.outputs.region }} \
+            --format='value(status.url)')
+          echo "Deployed to: $SERVICE_URL"
