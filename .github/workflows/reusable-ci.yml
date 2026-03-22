@@ -27,6 +27,11 @@ on:
         required: false
         type: string
         default: ""
+      skip-tests:
+        description: "Skip unit tests (temporary workaround for OOM issues)"
+        required: false
+        type: boolean
+        default: false
     secrets:
       PKG_READ_TOKEN:
         description: "GitHub Packages read token for scoped packages"
@@ -70,6 +75,7 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Unit tests
+        if: ${{ !inputs.skip-tests }}
         run: npm test -- --coverage
         env:
           NODE_OPTIONS: ${{ inputs.node-options }}
@@ -80,7 +86,7 @@ jobs:
           NODE_OPTIONS: ${{ inputs.node-options }}
 
       - name: Upload coverage
-        if: always()
+        if: ${{ always() && !inputs.skip-tests }}
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ inputs.service-name }}
