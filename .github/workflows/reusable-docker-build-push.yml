@@ -111,6 +111,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             GITHUB_TOKEN=${{ secrets.PKG_READ_TOKEN }}
+            BUILD_HASH=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
