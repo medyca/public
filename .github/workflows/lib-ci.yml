@@ -36,8 +36,10 @@ jobs:
 
       - name: Configure npm registry
         run: |
-          echo "${{ inputs.scope }}:registry=https://npm.pkg.github.com" > .npmrc
-          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc
+          grep -v '^\s*@.*:registry=\|^\s*//npm.pkg.github.com' .npmrc > .npmrc.tmp 2>/dev/null || true
+          echo "${{ inputs.scope }}:registry=https://npm.pkg.github.com" >> .npmrc.tmp
+          echo "//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}" >> .npmrc.tmp
+          mv .npmrc.tmp .npmrc
         env:
           NODE_AUTH_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
 
