@@ -55,6 +55,9 @@ on:
       GCP_SERVICE_ACCOUNT_PRODUCTION:
         description: "GCP service account email for production"
         required: false
+      SESSION_ENCRYPTION_KEY:
+        description: "44-char base64 dummy for CI bootstrap (NOT a real key). Required for BFFs/MBEs that initialize SecureSessionModule."
+        required: false
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -68,6 +71,7 @@ jobs:
       node-version: ${{ inputs.node-version }}
     secrets:
       PKG_READ_TOKEN: ${{ secrets.PKG_READ_TOKEN }}
+      SESSION_ENCRYPTION_KEY: ${{ secrets.SESSION_ENCRYPTION_KEY }}
 
   # ---------------------------------------------------------------------------
   # Stage 2: Build & Push (only on merge to main)
