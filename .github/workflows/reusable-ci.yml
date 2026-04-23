@@ -36,6 +36,9 @@ on:
       PKG_READ_TOKEN:
         description: "GitHub Packages read token for scoped packages"
         required: true
+      SESSION_ENCRYPTION_KEY:
+        description: "44-char base64 dummy for CI bootstrap (NOT a real key). Required for BFFs/MBEs that initialize SecureSessionModule."
+        required: false
 
 jobs:
   ci:
@@ -81,11 +84,13 @@ jobs:
         run: npm test -- --coverage
         env:
           NODE_OPTIONS: ${{ inputs.node-options }}
+          SESSION_ENCRYPTION_KEY: ${{ secrets.SESSION_ENCRYPTION_KEY }}
 
       - name: Build
         run: npm run build
         env:
           NODE_OPTIONS: ${{ inputs.node-options }}
+          SESSION_ENCRYPTION_KEY: ${{ secrets.SESSION_ENCRYPTION_KEY }}
 
       - name: Upload coverage
         if: ${{ always() && !inputs.skip-tests }}
